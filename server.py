@@ -8,6 +8,8 @@ import time
 from random import randint
 from pymongo import MongoClient
 from confing import MONGO_URI
+import time
+from random import randint
 
 app = Flask(__name__)
 
@@ -128,8 +130,7 @@ bucket = storage.bucket()
 
 def save_image_to_firebase(image_data):
     # Specify the filename for the image
-    filename = "ordonnance.jpg"
-
+    filename = str(int(time.time())) + '.jpg'
     # Create a new blob in the bucket and upload the image data
     blob = bucket.blob(filename)
     blob.upload_from_string(image_data, content_type='image/jpeg')
