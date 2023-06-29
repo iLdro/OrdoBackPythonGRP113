@@ -1,4 +1,8 @@
-from flask import Flask, jsonify, render_template, request, Response
+
+import base64
+import os
+import bson
+from flask import Flask, jsonify, make_response, render_template, request, Response, send_file
 import requests
 import cv2
 import numpy as np
@@ -13,6 +17,7 @@ import time
 from random import randint
 import json
 import datetime
+from bson.objectid import ObjectId
 
 app = Flask(__name__)
 
@@ -59,37 +64,26 @@ def generate_ordonnance(medecin, client, medicaments):
 
         cv2.putText(ordonnance, medecin["name"], (350, 900), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 0), 1)
 
-        ret, buffer = cv2.imencode('.jpg', ordonnance)
-        frame = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-    return file_name
+    return ordonnance 
 
 
 # Initialize Firebase Admin SDK
-cred = credentials.Certificate("odomastercamp-firebase-adminsdk-jdqqe-2be3aebde8.json")
-firebase_admin.initialize_app(cred, {'storageBucket': 'odomastercamp.appspot.com'})
 
-db = firestore.client()
+def save_to_image_to_mongo(image_data):
+    collection_doc = mongo_db["docs"]
 
+    # Decode the Base64-encoded image data
+    image_bytes = base64.b64decode(image_data)
 
+    image_bson = bson.Binary(image_bytes)
 
-# Create a Firebase Storage client
-bucket = storage.bucket()
+    doc = {"image": image_bson}
 
+    result = collection_doc.insert_one(doc)
 
-def save_image_to_firebase(image_data):
-    # Specify the filename for the image
-    filename = str(int(time.time())) + '.jpg'
-    # Create a new blob in the bucket and upload the image data
-    blob = bucket.blob(filename)
-    blob.upload_from_string(image_data, content_type='image/jpeg')
+    document_id = result.inserted_id
 
-    # Generate a public URL for the uploaded image
-    url = blob.public_url
-
-    return url
+    return str(document_id)
 
 
 @app.route('/ordonnance', methods=['POST'])
@@ -121,25 +115,81 @@ def ordonnance():
         
     mongo_collection = mongo_db["ordonnances"]
     image_data = generate_ordonnance(medecin, client, medicaments)
-    image_bytes = next(image_data)  # Get the first generated frame as bytes
-    image_data.close()  # Close the generator to release resources
+    # Save the image temporarily
+    temp_path = 'temp_ordonnance.png'
+    cv2.imwrite(temp_path, image_data)
 
-    image_url = save_image_to_firebase(image_bytes)
+    # Serve the image using Flask's send_file function
+    return send_file(temp_path, mimetype='image/png')
 
-    ordonnance_data = {
-        'image_url': image_url,
-        'medecin_id': medecin_id,
-        'user_id': user_id,
-        'medicaments': medicaments,
-        'pharmacien': " ",
-        'dateDeCréation': datetime.datetime.now(),
-        'expired': False,
-    }
 
-    result = mongo_collection.insert_one(ordonnance_data)
 
-    print('Created ordonnance {0}'.format(result.inserted_id))
-    return jsonify(request_data)
+@app.route('/test', methods=['GET'])
+def display_ordonnance():  
+    request = {
+  "medecin_id": "64999e9bfd677ad4f009b841",
+  "client_id" : "64958e29428e5f9a03cba8ca",
+  "medicaments": [
+      {
+          "nom_medicament": "Doliprane",
+          "dosage": "500mg",
+          "fréquence": "3 fois par jour",
+          "duree": "5 jours"
+      },
+      {
+          "nom_medicament": "Doliprane",
+          "dosage": "500mg",
+          "fréquence": "3 fois par jour",
+          "duree": "5 jours"
+      },
+      {
+          "nom_medicament": "Doliprane",
+          "dosage": "500mg",
+          "fréquence": "3 fois par jour",
+          "duree": "5 jours"
+      }]
+}
+    if request.method == 'GET': 
+        request_data = request.get_json()
+        medecin_id = request_data['medecin_id']
+        user_id = request_data['client_id']
+        medicaments = request_data['medicaments']
+        
+    express_url = "http://localhost:5000"
+    
+    try:
+        response = requests.post(express_url + "/medById", json={"id": medecin_id})
+        print("medecin", response.text)  # Affiche la réponse JSON reçue
+        medecin = response.json()  # Convertit la réponse JSON en objet Python
+        client = requests.post("http://localhost:5000/med/getUserById", json={"id": user_id}).json()
+        print(medecin)
+        print(client)
+    except requests.exceptions.RequestException as e:
+        print(str(e))
+        return "erreur"
+
+    print(request_data)
+    
+    # Generate the ordonnance image
+    ordonnance_image = generate_ordonnance(medecin, client, medicaments)
+
+    # Save the image temporarily
+    temp_path = 'temp_ordonnance.png'
+    cv2.imwrite(temp_path, ordonnance_image)
+
+    # Serve the image using Flask's send_file function
+    return send_file(temp_path, mimetype='image/png')
+
+
+@app.route("/editOrdonnance", methods=["POST"])
+def editOrdonnance():
+    if request == 'POST':
+        request_data = request.get_json()
+        pharmacien_id = request_data['pharmacien_id']
+        
+
+        
+
 
 if __name__ == '__main__':
     app.run(host='localhost', port=5173)
