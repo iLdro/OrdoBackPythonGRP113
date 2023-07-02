@@ -16,8 +16,12 @@ import datetime
 from bson.objectid import ObjectId
 from config import MONGO_URI
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
+
+app.config['CORS_HEADERS'] = 'Content-Type'
+CORS(app, origins=['http://localhost:5000', "http://localhost:8081"])
 
 mongo_client = MongoClient(MONGO_URI)
 mongo_db = mongo_client["test"]
